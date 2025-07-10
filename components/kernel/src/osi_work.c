@@ -109,23 +109,40 @@ bool osiWorkResetCallback(osiWork_t *work, osiCallback_t run, osiCallback_t comp
     return true;
 }
 
+/**
+ * @brief 将工作项加入工作队列中，等待后续调度执行。
+ *
+ * @param work 指向待加入的工作项（osiWork_t）。
+ * @param wq   指向目标工作队列（osiWorkQueue_t）。
+ *
+ * @return 加入成功返回 true，参数非法或失败返回 false。
+ *
+ * @note 若该工作项已在其他工作队列中，会先从原队列中移除，再加入目标队列。
+ *       加入后会通过信号量通知队列有新任务到来。
+ */
 bool osiWorkEnqueue(osiWork_t *work, osiWorkQueue_t *wq)
 {
+    // 打印调试日志：打印工作项和目标工作队列的地址
     OSI_LOGD(0, "work enqeue, work/%p wq/%p", work, wq);
-
+    // 如果工作项或工作队列为空指针，参数非法，直接返回 false
     if (work == NULL || wq == NULL)
         return false;
-
+    // 进入临界区，防止多线程/中断同时访问队列（加锁）
     uint32_t critical = osiEnterCritical();
+    // 如果工作项当前绑定的队列不是目标队列
     if (work->wq != wq)
     {
+        // 如果已经在某个队列中，先从旧队列中移除该工作项
         if (work->wq != NULL)
             TAILQ_REMOVE(&work->wq->work_list, work, iter);
-
+        // 将工作项插入到新队列的末尾（链表尾部）
         TAILQ_INSERT_TAIL(&wq->work_list, work, iter);
+        // 更新工作项的队列指针，指向新队列
         work->wq = wq;
+        // 释放信号量，通知工作线程：有新任务到达
         osiSemaphoreRelease(wq->work_sema);
     }
+    // 离开临界区，恢复中断或多线程调度
     osiExitCritical(critical);
     return true;
 }
@@ -211,48 +228,77 @@ void *osiWorkContext(osiWork_t *work)
 {
     return (work != NULL) ? work->cb_ctx : NULL;
 }
+/**
+ * @brief 工作队列线程的主入口函数（work queue worker thread）。
+ *
+ * 该函数由 `osiWorkQueueCreate()` 创建的线程执行，
+ * 用于处理挂到工作队列上的所有任务（`osiWork_t`）。
+ *
+ * 工作流程：
+ * - 线程初始化后进入循环
+ * - 每次从队列中取出一个任务执行
+ * - 调用任务的 run 回调、然后是 complete 回调
+ * - 使用信号量机制控制线程阻塞与唤醒
+ * - 线程退出前清理队列中未执行的任务并释放资源
+ */
 
 static void _wqThreadEntry(void *argument)
 {
+     // 打印日志：工作队列线程启动
     OSI_LOGD(0, "work queue %p started", argument);
 
     uint32_t critical;
     osiWork_t *work;
+    // 将传入的参数转换为工作队列结构体指针
     osiWorkQueue_t *wq = (osiWorkQueue_t *)argument;
+    // 记录当前线程指针（通常在线程内部调用 osiThreadCurrent）
     wq->thread = osiThreadCurrent();
 
     OSI_LOGD(0, "work queue thread %p", wq->thread);
-
-    while (wq->running)
+    // 主循环，只要工作队列处于“运行”状态就不断检查任务列表
+    /*wq->running 变为 false 是由其他线程主动调用某个释放函数（比如 osiWorkQueueDelete()）设置的
+    *为什么要这样设计？
+    *[1]防止线程死循环：运行标志 wq->running 是个“线程退出开关”。
+    *[2]防止资源泄漏：在线程退出前清理队列中还没执行的任务。
+    *[3]实现可控线程生命周期：比如动态创建和销毁模块线程时很实用。
+    */
+   while (wq->running)
     {
+        // 进入临界区，保护 work_list 链表访问
         critical = osiEnterCritical();
+        // 取出工作队列中的第一个待处理任务
         work = TAILQ_FIRST(&wq->work_list);
         OSI_LOGD(0, "work run, work/%p wq/%p", work, wq);
+        // 如果当前没有任务可执行
         if (work == NULL)
         {
+            // 退出临界区
             osiExitCritical(critical);
+            // 等待新任务到来（被唤醒）
             osiSemaphoreAcquire(wq->work_sema);
-            continue;
+            continue;// 回到循环头部
         }
-
+        // 将任务从队列中移除
         TAILQ_REMOVE(&wq->work_list, work, iter);
+        // 清空该任务的工作队列指针（表示不再挂靠在队列上）
         work->wq = NULL;
 
         // keep the values before exit critical section
+        // 在临界区中读取任务数据后退出临界区（防止阻塞其它操作）
         osiCallback_t run = work->run;
         osiCallback_t complete = work->complete;
         void *ctx = work->cb_ctx;
         osiExitCritical(critical);
-
+        // 如果任务定义了 run 回调函数，调用它（执行任务主逻辑）
         if (run != NULL)
             run(ctx);
-
+        // 如果任务定义了 complete 回调函数，调用它（处理收尾逻辑）
         if (complete != NULL)
             complete(ctx);
-
+        // 通知任务完成，可以释放资源或等待 finish 信号
         osiSemaphoreRelease(wq->finish_sema);
     }
-
+     // 线程即将退出，清理队列中尚未执行的任务（防止泄露）
     critical = osiEnterCritical();
     while ((work = TAILQ_FIRST(&wq->work_list)) != NULL)
     {
@@ -260,11 +306,12 @@ static void _wqThreadEntry(void *argument)
         work->wq = NULL;
     }
     osiExitCritical(critical);
-
+    // 删除工作队列的两个信号量（防止内存泄漏）
     osiSemaphoreDelete(wq->work_sema);
     osiSemaphoreDelete(wq->finish_sema);
+    // 释放工作队列结构体本身
     free(wq);
-
+    // 正常退出线程
     osiThreadExit();
 }
 
