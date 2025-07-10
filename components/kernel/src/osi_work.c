@@ -44,19 +44,40 @@ static osiWorkQueue_t *gHighWq = NULL;
 static osiWorkQueue_t *gLowWq = NULL;
 static osiWorkQueue_t *gFsWq = NULL;
 
+/**************************************************************
+ * @brief 创建一个工作项对象，用于异步任务调度系统（如工作队列）。
+ *
+ * @param run      工作项主函数（必须提供），实际执行的任务。
+ * @param complete 工作项完成后的回调函数（可选），用于通知或清理。
+ * @param ctx      用户上下文指针，会传递给 run 和 complete，用于传参。
+ *
+ * @return 成功返回指向新创建的工作项指针（osiWork_t *），失败返回 NULL。
+ *
+ * @note 创建后通常会将该工作项加入某个工作队列（wq）中调度执行。
+ ****************************************************************/
 osiWork_t *osiWorkCreate(osiCallback_t run, osiCallback_t complete, void *ctx)
 {
+    // 如果 run 为 NULL，说明调用者没有提供任务处理函数
+    // 工作项无法正常执行，因此直接返回 NULL
     if (run == NULL)
         return NULL;
-
+    // 使用 calloc 分配并初始化一个 osiWork_t 结构体
+    // calloc(1, sizeof(*work)) 分配了一个结构体大小的内存，并全部置 0
     osiWork_t *work = calloc(1, sizeof(*work));
+    // 如果内存分配失败（系统资源不足），返回 NULL
     if (work == NULL)
         return NULL;
-
+    // 将工作项的 run 函数指针设置为用户传入的处理函数
     work->run = run;
+    // 设置 complete 回调（可以为 NULL，不强制）
+    // 如果提供了，它会在任务完成后被调用
     work->complete = complete;
+    // 保存用户上下文指针，这个值会传入 run 和 complete，用于传递参数
     work->cb_ctx = ctx;
+    // 初始化工作项所属的工作队列指针为 NULL
+    // 后续通过调度系统将该工作项插入某个队列时会赋值
     work->wq = NULL;
+    // 所有字段初始化完成，返回工作项对象指针
     return work;
 }
 
