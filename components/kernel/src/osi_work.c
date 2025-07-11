@@ -12,6 +12,16 @@
 
 // #define OSI_LOCAL_LOG_LEVEL OSI_LOG_LEVEL_DEBUG
 
+/**
+ * @file osi_work_queue.h
+ * @brief 轻量级工作队列机制（Work Queue），用于延迟执行任务或解耦任务执行上下文
+ *
+ * 本模块定义了 `osiWorkQueue_t`（工作队列）和 `osiWork_t`（工作项）结构，用于支持多线程环境中
+ * 异步任务调度。通过将任务（work）投递到后台线程（thread）中执行，避免在中断或主线程中执行耗时逻辑。
+ *
+ * 支持任务执行前回调（`run`）和完成后回调（`complete`），并可分高/低/文件系统优先级队列。
+ */
+
 #include "osi_api.h"
 #include "osi_log.h"
 #include "osi_internal.h"
@@ -21,28 +31,57 @@
 
 typedef TAILQ_ENTRY(osiWork) osiWorkEntry_t;
 typedef TAILQ_HEAD(osiWorkHead, osiWork) osiWorkHead_t;
+
+/**
+ * 整理后：
+ * /**
+ * @brief osiWork 链表节点的链接信息
+ * 用于将 osiWork 对象挂接到双向队列中。
+ *
+ *   typedef struct {
+ *       struct osiWork *tqe_next;         ///< 指向下一个节点
+ *       struct osiWork **tqe_prev;        ///< 指向前一个节点的 tqe_next 成员的指针
+ *   } osiWorkEntry_t;
+ * 
+ * @brief osiWork 链表头
+ * 包含指向第一个元素的指针和指向最后一个元素 next 指针地址的指针。
+ *
+ *  typedef struct {
+ *      struct osiWork *tqh_first;        ///< 指向链表第一个元素
+ *      struct osiWork **tqh_last;        ///< 指向最后一个元素的 tqe_next 指针的地址
+ *  } osiWorkHead_t;
+ */
+
+
 struct osiWork
 {
-    osiWorkEntry_t iter;
+    osiWorkEntry_t iter;       ///< 链表节点，用于挂载在工作队列上
 
-    osiCallback_t run;
-    osiCallback_t complete;
-    void *cb_ctx;
-    osiWorkQueue_t *wq;
+    osiCallback_t run;         ///< 工作主函数指针，在工作线程中被调用
+    osiCallback_t complete;    ///< 工作完成回调函数，可选，通常在主线程中调用
+
+    void *cb_ctx;              ///< 回调函数的上下文参数
+
+    osiWorkQueue_t *wq;        ///< 所属的工作队列（用于完成通知、状态检查等）
 };
+
 
 struct osiWorkQueue
 {
-    volatile bool running;
-    osiThread_t *thread;
-    osiSemaphore_t *work_sema;
-    osiSemaphore_t *finish_sema;
-    osiWorkHead_t work_list;
+    volatile bool running;         ///< 标志工作队列是否仍在运行（用于线程退出判断）
+
+    osiThread_t *thread;           ///< 工作队列使用的后台线程对象（自动处理工作项）
+
+    osiSemaphore_t *work_sema;     ///< 工作同步信号量（有新工作到来时释放，用于唤醒线程）
+    osiSemaphore_t *finish_sema;   ///< 完成同步信号量（工作执行完成时用于通知等待者）
+
+    osiWorkHead_t work_list;       ///< 挂载所有工作项的链表队列
 };
 
-static osiWorkQueue_t *gHighWq = NULL;
-static osiWorkQueue_t *gLowWq = NULL;
-static osiWorkQueue_t *gFsWq = NULL;
+
+static osiWorkQueue_t *gHighWq = NULL;  ///< 高优先级工作队列（例如 UI、音频等）
+static osiWorkQueue_t *gLowWq = NULL;   ///< 低优先级工作队列（例如日志、异步写入等）
+static osiWorkQueue_t *gFsWq = NULL;    ///< 文件系统相关工作队列
 
 /**************************************************************
  * @brief 创建一个工作项对象，用于异步任务调度系统（如工作队列）。
@@ -81,33 +120,74 @@ osiWork_t *osiWorkCreate(osiCallback_t run, osiCallback_t complete, void *ctx)
     return work;
 }
 
+/**
+ * @brief 删除一个工作任务（osiWork）
+ *
+ * 该函数从工作队列中安全地移除一个任务对象并释放其内存资源。
+ * 如果该任务尚在队列中，会先从队列中移除，并设置其工作队列指针为空。
+ *
+ * @param work 要删除的工作任务指针。传入 NULL 则无操作。
+ */
 void osiWorkDelete(osiWork_t *work)
 {
+    // 如果参数为空，直接返回
     if (work == NULL)
         return;
 
+    // 进入临界区，防止多线程并发访问
     uint32_t critical = osiEnterCritical();
+
+    // 如果当前任务已经加入了某个工作队列
     if (work->wq != NULL)
     {
+        // 从工作队列中移除该任务
         TAILQ_REMOVE(&work->wq->work_list, work, iter);
+
+        // 断开与工作队列的关联，表示未挂载
         work->wq = NULL;
     }
+
+    // 释放该任务对象占用的内存
     free(work);
+
+    // 退出临界区
     osiExitCritical(critical);
 }
 
+
+/**
+ * @brief 重设工作任务的回调函数及上下文
+ *
+ * 此函数允许在不重新创建对象的情况下，更新任务的主执行函数、
+ * 完成回调函数及回调上下文数据。
+ *
+ * @param work     要更新的工作任务指针
+ * @param run      新的任务执行函数指针（必填）
+ * @param complete 新的任务完成回调函数（可为空）
+ * @param ctx      用户上下文指针（可为空）
+ * @return true    成功更新回调信息
+ * @return false   参数非法或 work/run 为 NULL
+ */
 bool osiWorkResetCallback(osiWork_t *work, osiCallback_t run, osiCallback_t complete, void *ctx)
 {
+    // 参数校验：任务和运行回调函数必须非空
     if (work == NULL || run == NULL)
         return false;
 
+    // 进入临界区，防止竞争条件
     uint32_t critical = osiEnterCritical();
+
+    // 更新运行函数、完成回调及上下文
     work->run = run;
     work->complete = complete;
     work->cb_ctx = ctx;
+
+    // 退出临界区
     osiExitCritical(critical);
+
     return true;
 }
+
 
 /**
  * @brief 将工作项加入工作队列中，等待后续调度执行。
@@ -147,76 +227,144 @@ bool osiWorkEnqueue(osiWork_t *work, osiWorkQueue_t *wq)
     return true;
 }
 
+/**
+ * @brief 将工作任务添加到工作队列末尾（尾插）
+ *
+ * 如果该任务已在其他工作队列中，会先将其从原队列中移除，再插入新的队列。
+ * 同时通过信号量唤醒等待执行任务的线程。
+ *
+ * @param work 工作任务对象指针（必须已初始化）
+ * @param wq   目标工作队列指针
+ * @return true 成功插入
+ * @return false 参数为空或无效
+ */
 bool osiWorkEnqueueLast(osiWork_t *work, osiWorkQueue_t *wq)
 {
     OSI_LOGD(0, "work enqeue last, work/%p wq/%p", work, wq);
 
+    // 参数检查
     if (work == NULL || wq == NULL)
         return false;
 
+    // 进入临界区，保证多线程安全
     uint32_t critical = osiEnterCritical();
 
+    // 若任务已存在于其他队列中，先移除
     if (work->wq != NULL)
         TAILQ_REMOVE(&work->wq->work_list, work, iter);
 
+    // 将任务插入到目标队列尾部
     TAILQ_INSERT_TAIL(&wq->work_list, work, iter);
+
+    // 设置任务当前所属工作队列
     work->wq = wq;
+
+    // 通知工作队列线程有新任务
     osiSemaphoreRelease(wq->work_sema);
 
+    // 退出临界区
     osiExitCritical(critical);
     return true;
 }
 
+
+/**
+ * @brief 取消工作任务（若已挂载于工作队列中）
+ *
+ * 该函数会从任务所在的工作队列中将其移除，并断开任务与队列的关联。
+ *
+ * @param work 要取消的任务对象指针
+ */
 void osiWorkCancel(osiWork_t *work)
 {
+    // 空指针检测
     if (work == NULL)
         return;
 
+    // 进入临界区，保护工作队列一致性
     uint32_t critical = osiEnterCritical();
+
+    // 如果任务挂在某个工作队列中
     if (work->wq != NULL)
     {
+        // 从队列中安全移除任务
         TAILQ_REMOVE(&work->wq->work_list, work, iter);
+
+        // 清空队列引用，标记为未挂载
         work->wq = NULL;
     }
+
+    // 退出临界区
     osiExitCritical(critical);
 }
 
+/**
+ * @brief 等待一个工作任务完成
+ *
+ * 此函数用于阻塞当前线程，直到指定的工作项执行完成，或等待超时。
+ * 工作完成的依据是该工作从其所属的工作队列中被移除（`work->wq == NULL`）。
+ *
+ * @param work    待等待的工作项指针
+ * @param timeout 等待超时时间（毫秒），可以是 OSI_WAIT_FOREVER 表示永久等待
+ * @return true  表示工作已经完成
+ *         false 表示超时或参数非法
+ *
+ * @note 当设置为永久等待时，若任务永不完成，会导致阻塞。
+ *       本函数线程安全，可被多个线程调用。
+ */
+
 bool osiWorkWaitFinish(osiWork_t *work, unsigned timeout)
 {
+    // 参数非法，直接返回 false
     if (work == NULL)
         return false;
 
+    // 定义并启动一个计时器，用于计算超时时间
     osiElapsedTimer_t timer;
     osiElapsedTimerStart(&timer);
+
+    // 进入临界区，防止并发修改 work->wq
     uint32_t critical = osiEnterCritical();
+
+    // 无限循环，直到任务完成或超时
     for (;;)
     {
+        // 如果任务已经完成（即已从工作队列中移除）
         if (work->wq == NULL)
         {
             osiExitCritical(critical);
-            return true;
+            return true; // 成功等待完成
         }
 
+        // timeout=0，表示立即返回，不等待
         if (timeout == 0)
         {
             osiExitCritical(critical);
-            return false;
+            return false; // 任务未完成
         }
 
+        // 永久等待模式
         if (timeout == OSI_WAIT_FOREVER)
         {
+            // 阻塞式等待“完成信号量”，等待任何一个任务完成
             osiSemaphoreAcquire(work->wq->finish_sema);
+            // 继续检查 work->wq 是否已清除（有可能不是当前任务完成）
             continue;
         }
 
+        // 否则进入有限时间等待，计算剩余时间
         int wait = timeout - osiElapsedTime(&timer);
         if (wait < 0 || !osiSemaphoreTryAcquire(work->wq->finish_sema, wait))
         {
             osiExitCritical(critical);
-            return false;
+            return false; // 超时或等待失败
         }
+
+        // 若拿到信号量，继续循环检查任务是否完成
     }
-    // never reach
+
+    // 理论上不可达：循环要么返回 true，要么返回 false
+    // return false;
 }
 
 osiCallback_t osiWorkFunction(osiWork_t *work)
