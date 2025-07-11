@@ -35,8 +35,8 @@
 
 typedef struct
 {
-    uint16_t offset; // the unit of offset depends on user
-    uint16_t wp;     // sr bits for wp
+    uint16_t offset; // 写保护的起始偏移（从末尾往前保护多少个4K块）
+    uint16_t wp;     // 对应写保护设置时应写入SR寄存器的BP位组合
 } halSpiFlashWpMap_t;
 
 /**
@@ -50,10 +50,28 @@ static const halSpiFlash_t gSpiFlashProps[] = {
  * Table for GD 1MB, offset unit in 4K
  */
 FLASHRAM_CODE static const halSpiFlashWpMap_t gGD8MWpMap[] = {
+    /**
+     * 全部写保护（从头到尾全部禁止写）；
+     * SECTOR_COUNT_1M 表示 1MB / 4KB = 256 个扇区；
+     * GD_WP8M_ALL 是设置 SR.BP 的位组合，表示“全部写保护”
+     */
     {SECTOR_COUNT_1M, GD_WP8M_ALL},
+    /**
+     * 保护最后 1/16 区域（即从地址0开始保护15/16）；
+     * 支持如 bootloader 固定放前面而不保护，尾部用于写参数
+     */
     {SECTOR_COUNT_1M - SECTOR_COUNT_1M / 16, GD_WP8M_15_16},
+    /**
+     * 保护最后 1/8 区域（即从地址0开始保护7/8）；
+     * 支持如 bootloader 固定放前面而不保护，尾部用于写参数
+     */
     {SECTOR_COUNT_1M - SECTOR_COUNT_1M / 8, GD_WP8M_7_8},
+        /**
+     * 保护最后 1/4 区域（即从地址0开始保护3/4）；
+     * 支持如 bootloader 固定放前面而不保护，尾部用于写参数
+     */
     {SECTOR_COUNT_1M - SECTOR_COUNT_1M / 4, GD_WP8M_3_4},
+
     {SECTOR_COUNT_1M / 2, GD_WP8M_1_2},
     {SECTOR_COUNT_1M / 4, GD_WP8M_1_4},
     {SECTOR_COUNT_1M / 8, GD_WP8M_1_8},
@@ -62,6 +80,10 @@ FLASHRAM_CODE static const halSpiFlashWpMap_t gGD8MWpMap[] = {
     {SECTOR_COUNT_16K, GD_WP8M_16K},
     {SECTOR_COUNT_8K, GD_WP8M_8K},
     {SECTOR_COUNT_4K, GD_WP8M_4K},
+    /**
+     * 最后一项表示 不写保护任何区域；
+     * 当用户传入 offset 为0时，SR 配置为 GD_WP8M_NONE
+     */
     {0, GD_WP8M_NONE},
 };
 
@@ -1068,37 +1090,71 @@ FLASHRAM_API void halSpiFlashReset(const halSpiFlash_t *d)
 }
 
 /**
- * Read status registers
+ * @brief 读取 SPI Flash 的状态寄存器（Status Register）
+ *
+ * 根据 Flash 芯片是否支持 SR2（状态寄存器 2）选择不同的读取方式：
+ * - 如果支持 SR2，则读取 SR1 和 SR2 组合的 16 位值。
+ * - 否则仅读取 SR1 的 8 位值。
+ *
+ * @param d SPI Flash 实例指针，包含芯片特性描述
+ * @return uint16_t 读取到的状态寄存器值（如果只支持 SR1，返回低 8 位有效）
  */
 FLASHRAM_API uint16_t halSpiFlashReadSR(const halSpiFlash_t *d)
 {
-    return (d->has_sr2) ? prvReadSR12(d) : prvReadSR1(d);
+    // 如果支持 SR2，就读取 SR1+SR2 的组合值（16 位）
+    return (d->has_sr2) ? prvReadSR12(d)
+                        : prvReadSR1(d);  // 否则只读 SR1（8 位）
 }
 
 /**
- * write SR1, and SR2 if supported
+ * @brief 写入 SPI Flash 状态寄存器 SR1/SR2
+ *
+ * 根据芯片支持的方式完成状态寄存器写入：
+ * - 只支持 SR1 → 单次写入 SR1
+ * - 支持 SR1 + SR2 且支持一次写入 → 一次写入 SR1+SR2
+ * - 支持 SR1 + SR2 但不支持一次写入 → 分别写入 SR1 与 SR2
+ *
+ * 写入前需使能写操作（WREN），写入后等待写完成（WIP 清零）。
+ *
+ * @param d   SPI Flash 实例指针
+ * @param sr  要写入的状态寄存器值（低 8 位为 SR1，高 8 位为 SR2）
  */
 FLASHRAM_API void halSpiFlashWriteSR(const halSpiFlash_t *d, uint16_t sr)
 {
+    // 如果芯片不支持 SR2，只写入 SR1（低 8 位）
     if (!d->has_sr2)
     {
+        // 写使能命令（WREN）
         halSpiFlashWriteEnable(d);
+        // 写入 SR1（低 8 位）
         prvWriteSR1(d, sr & 0xff);
+        // 等待写入完成（WIP=0）
         halSpiFlashWaitWipFinish(d);
     }
+    // 如果支持一次写 SR1+SR2（例如使用 0x01 写 16 位）
     else if (d->write_sr12)
     {
+        // 写使能
         halSpiFlashWriteEnable(d);
+        // 写入 SR1+SR2 的组合值（16 位）
         prvWriteSR12(d, sr);
+        // 等待写完成
         halSpiFlashWaitWipFinish(d);
     }
+     // 如果 SR1 和 SR2 必须分开写
     else
     {
+        // 写使能
         halSpiFlashWriteEnable(d);
+        // 写 SR1（低 8 位）
         prvWriteSR1(d, sr & 0xff);
+        // 等待写完成
         halSpiFlashWaitWipFinish(d);
+        // 再次写使能
         halSpiFlashWriteEnable(d);
+        // 写 SR2（高 8 位）
         prvWriteSR2(d, (sr >> 8) & 0xff);
+        // 等待写完成
         halSpiFlashWaitWipFinish(d);
     }
 }
@@ -1125,28 +1181,38 @@ FLASHRAM_API void halSpiFlashWaitWipFinish(const halSpiFlash_t *d)
 }
 
 /**
- * XMCA: initial SR check
+ * @brief XMCA 系列 Flash 的初始状态寄存器检查与修复。
+ * 
+ * 对 XMCA 型号的 SPI Flash 进行重置、OTP 配置、SR 保留位清理等初始化，
+ * 确保进入正确的状态寄存器配置状态。
+ *
+ * @param d SPI Flash 实例指针
  */
 OSI_FORCE_INLINE static void prvStatusCheckXMCA(const halSpiFlash_t *d)
 {
-    // always reset
-    halSpiFlashResetEnable(d);
-    halSpiFlashReset(d);
-    osiDelayUS(DELAY_AFTER_RESET);
+    // 1. 软复位：开启复位并执行复位命令
+    halSpiFlashResetEnable(d);  // 启用复位命令（WREN + 66H）
+    halSpiFlashReset(d);        // 发出 Flash 复位命令（99H）
+    osiDelayUS(DELAY_AFTER_RESET);// 复位后等待 Flash 准备就绪
 
-    prvCmdOnlyNoRx(d->hwp, EXTCMD_NORX(0x3a)); // Enter OTP Mode
+    // 2. 进入 OTP 模式（写保护配置区）
+    prvCmdOnlyNoRx(d->hwp, EXTCMD_NORX(0x3a)); // 发送 3A 指令：进入 OTP Mode
+    // 3. 读取 SR 并检查 OTP_TB 位（保护方向位），如果未设则写入
     uint8_t sr_otp = prvReadSR1(d);
+    // 若未设置保护方向位
     if ((sr_otp & XMCA_SR_OTP_TB) == 0)
     {
-        halSpiFlashWriteEnable(d);
-        prvWriteSR1(d, sr_otp | XMCA_SR_OTP_TB);
-        halSpiFlashWaitWipFinish(d);
+        halSpiFlashWriteEnable(d);// 写使能
+        prvWriteSR1(d, sr_otp | XMCA_SR_OTP_TB);// 写入设置 OTP_TB 位
+        halSpiFlashWaitWipFinish(d);// 等待写完成（WIP 清除）
     }
-    halSpiFlashWriteDisable(d); // Exit OTP Mode
+    halSpiFlashWriteDisable(d); // 禁止写操作，退出 OTP 模式
 
+    // 4. 配置 SR：使能所有 Block Protect 位，清除 SRP/EBL 位
     uint8_t sr = prvReadSR1(d);
     uint8_t sr_needed = sr | (XMCA_SR_BP0 | XMCA_SR_BP1 | XMCA_SR_BP2 | XMCA_SR_BP3);
-    sr_needed &= ~(XMCA_SR_EBL | XMCA_SR_SRP);
+    sr_needed &= ~(XMCA_SR_EBL | XMCA_SR_SRP);  // 清除 SRP (SR Lock) 和 EBL (ECC)
+    // 如有差异则修正状态寄存器
     if (sr != sr_needed)
     {
         halSpiFlashWriteEnable(d);
@@ -1156,51 +1222,66 @@ OSI_FORCE_INLINE static void prvStatusCheckXMCA(const halSpiFlash_t *d)
 }
 
 /**
- * XMCB: initial SR check
+ * @brief XMCB 系列 Flash 的初始状态寄存器配置
+ *
+ * 不支持 volatile block protect，直接将 SR 设置为默认（仅 QE）
+ *
+ * @param d SPI Flash 实例指针
  */
 OSI_FORCE_INLINE static void prvStatusCheckXMCB(const halSpiFlash_t *d)
 {
-    // always reset
+    // 1. Flash 复位
     halSpiFlashResetEnable(d);
     halSpiFlashReset(d);
+    // 等待复位完成
     osiDelayUS(DELAY_AFTER_RESET);
 
-    // Due to volatile BP is not supported, SR will be set to wp-none status
+    // 2. 读取状态寄存器，检查是否为预期配置（仅 QE 位置为 1）
     uint8_t sr = prvReadSR1(d);
+    // 若 QE 位未正确设置
     if (sr != XMCB_SR_QE)
     {
         halSpiFlashWriteEnable(d);
+        // 设置 Quad Enable 位
         prvWriteSR1(d, XMCB_SR_QE);
         halSpiFlashWaitWipFinish(d);
     }
 }
 
 /**
- * GD: initial SR check
+ * @brief GD (GigaDevice) 系列 Flash 的状态寄存器初始化
+ *
+ * 检查是否需要复位（WIP/WEL/SUS 位未清除），配置写保护（WP）策略与 QE 位。
+ *
+ * @param d SPI Flash 实例指针
  */
 OSI_FORCE_INLINE static void prvStatusCheckGD(const halSpiFlash_t *d)
 {
+    // 读取 SR1 + SR2 状态（16 位）
     uint16_t sr = halSpiFlashReadSR(d);
+    // 1. 构造需要清零的状态位（写使能/WIP/Suspend 位）
     uint16_t need_reset_mask = (STREG_WEL | STREG_WIP);
     if (d->has_sus1)
         need_reset_mask |= GD_SR_SUS1;
     if (d->has_sus2)
         need_reset_mask |= GD_SR_SUS2;
-
+    // 2. 如果有上述状态未清除，执行 Flash 复位
     if (sr & need_reset_mask)
     {
         halSpiFlashResetEnable(d);
         halSpiFlashReset(d);
         osiDelayUS(DELAY_AFTER_RESET);
-
+        // 重新读取状态
         sr = halSpiFlashReadSR(d);
     }
-
+    // 3. 期望状态：设置 QE 位
     uint16_t sr_needed = sr | GD_SR_QE;
-    // Write volatile BP as protect all
+    // 4. 如果支持 GD 风格的 WP，强制写保护所有区域（volatile）
     if (d->wp_type == HAL_SPI_FLASH_WP_GD)
+        // 配置 WP0~WP3
         sr_needed = prvStatusWpAllGD(d, sr_needed);
 
+    // 5. 写入修改后的状态寄存器（如有变动）
     if (sr != sr_needed)
         halSpiFlashWriteSR(d, sr_needed);
 }
@@ -1283,12 +1364,44 @@ FLASHRAM_CODE static void prvFlashPropsByMid(halSpiFlash_t *d, unsigned mid)
 }
 
 /**
- * Initialize flash
+ * @brief 初始化 SPI Flash 设备属性
+ *
+ * 此函数是 Flash 模块的初始化入口，完成以下任务：
+ * 1. 读取 Flash 的 JEDEC ID（即厂家 ID）；
+ * 2. 根据 ID 设置 Flash 相关属性（容量、支持特性等）；
+ * 3. 执行厂商特定的 Status Register（SR）校验或配置，确保设备处于可用状态。
+ *
+ * 适用于支持多种 Flash 型号（如 GD、XMCA、XMCB）且需要运行时动态识别的场景。
+ *
+ * @param d 指向 Flash 实例结构体（halSpiFlash_t），调用前已分配内存。
  */
 FLASHRAM_API void halSpiFlashInit(halSpiFlash_t *d)
 {
+    /**
+     * 第一步：读取 Flash JEDEC ID（包含厂商 ID、容量 ID、设备 ID）
+     *         常用于识别不同品牌的 Flash（如 GD/XMC 等）
+     * prvReadId(d)：通过 SPI 发出 0x9F 指令，读取 Flash JEDEC ID
+     * 返回值常格式为：0x00FFXX，其中 FF 为厂商 ID，XX 为容量/设备信息
+     * 示例：0xC84018 表示 GD 厂商，容量 4MB。
+     *  */ 
     uint32_t mid = prvReadId(d);
+    /**
+     * 第二步：根据厂商 ID 设置 Flash 属性字段（如容量、写保护位、功能支持等）
+     *         会设置 halSpiFlash_t 中的字段，如 `type`, `sreg_block_size`, `has_sr2`, `sfdp_en` 等
+     * prvFlashPropsByMid() 是一个映射函数；
+     *       :根据 ID 填充 halSpiFlash_t 结构体中各个能力字段（见 halSpiFlash_t 结构）；
+     *       :支持识别同厂不同型号的差异，比如某些型号支持 SR2 或 UID，有些不支持。
+     */
     prvFlashPropsByMid(d, mid);
+    /**
+     *  第三步：根据厂商类型执行 Status Register 校验/初始化
+     *          不同品牌的 Flash 可能有不同的状态寄存器默认值或要求
+     *          此处根据识别到的型号调用如 XMCA/XMCB/GD 的定制检查函数
+     * halSpiFlashStatusCheck(d)：
+     *       对 GD/XMC Flash 的状态寄存器（SR1/SR2）进行初始化与纠正；
+     *       比如启用 Quad 模式（SR.QE），关闭写保护（BP位清除），退出 OTP 模式；
+     *       如果检测到非法的 SUS/WEL/WIP 位还原失败，会复位 Flash。
+     */
     halSpiFlashStatusCheck(d);
 }
 

@@ -207,17 +207,35 @@ static bool prvLvInitKeypad(void)
 }
 
 /**
- * run littlevgl task handler
+ * @brief 执行 LVGL 的任务处理函数
+ *
+ * 本函数作为 LVGL 的主任务循环回调，用于处理 GUI 动画、事件、绘制刷新等内部事务。
+ * 通常由定时器周期性触发。
+ *
+ * 主要逻辑包括：
+ * - 调用 `lv_task_handler()` 处理 LVGL 核心任务
+ * - 获取下次运行时间，并通过 `osiTimerStartRelaxed` 启动下一次任务调度
+ * - 调用 `lv_refr_now()` 立即刷新显示屏（可选操作，用于强制刷新）
+ *
+ * @note 本函数通常运行于 GUI 主线程或 GUI 定时任务上下文中。
  */
 static void prvLvTaskHandler(void)
 {
+    // 获取全局 GUI 上下文结构体，用于访问定时器和显示句柄
     lvGuiContext_t *d = &gLvGuiCtx;
 
+    // 执行 LittlevGL 的任务处理器
+    // 用于处理事件派发、控件动画、输入设备等核心操作
     lv_task_handler();
 
+    // 获取下次调度运行所需等待的 tick 数（单位：ms）
+    // LVGL 会根据内部任务队列动态计算调度周期
     unsigned next_run = lv_task_get_tick_next_run();
-    osiTimerStartRelaxed(d->task_timer, next_run, OSI_WAIT_FOREVER);
 
+    // 启动一个 OSI 软定时器，用于延迟 next_run 毫秒后再次调用本任务
+    // OSI_WAIT_FOREVER 参数表示任务在内核调度中无需主动超时退出
+    osiTimerStartRelaxed(d->task_timer, next_run, OSI_WAIT_FOREVER);
+    // 强制立即刷新屏幕（仅当需要实时显示更新时调用，LVGL 会避免重复刷）
     lv_refr_now(d->disp);
 }
 

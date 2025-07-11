@@ -23,50 +23,91 @@ extern "C" {
 #endif
 
 /**
- * \brief flash instance
+ * @brief SPI Flash 实例结构体（硬件属性描述）
  *
- * The preperty is derived from manufacture ID. It is found that even
- * for the same manufacture ID, the property may be different, for
- * example, security register block size. In this case, user can
- * override the perperty.
+ * 用于描述当前芯片中的 SPI Flash 控制器及其特性，主要字段由厂商 ID 推导得到。
+ * 但注意：即使厂商 ID 相同，不同型号芯片的 Flash 也可能存在不同（例如安全寄存器块大小不同），
+ * 因此此结构体允许用户手动覆盖属性。
  */
 typedef struct halSpiFlash
 {
-    /** hardware controller register base */
+    /** 硬件控制器基地址（寄存器基址） */
     uintptr_t hwp;
-    /** manufacture id */
+
+    /** 厂商 ID（Manufacturer ID），通常通过 JEDEC 标准指令读取，例如 0xC8 表示 GigaDevice） */
     unsigned mid;
-    /** capacity in bytes */
+
+    /** Flash 容量（单位：字节），例如 8MB Flash => 8 * 1024 * 1024 */
     unsigned capacity;
-    /** security register block size, 0 for not support */
+
+    /** 安全寄存器块大小（单位：字节），如果不支持安全寄存器，则为 0 */
     uint16_t sreg_block_size;
-    /** internal flash type */
+
+    /** Flash 类型（内部定义，低 4 位）
+     *  通常用于区别标准 NOR Flash / NAND Flash / QSPI Flash 等
+     */
     uint8_t type : 4;
-    /** status register wp type */
+
+    /** 写保护类型（低 4 位）
+     *  表示 Status Register 中关于 WP（写保护）字段的写入方式，例如 SR1/SR2 写入方式
+     */
     uint8_t wp_type : 4;
-    /** read uid type */
+
+    /** 读 UID 类型（低 4 位）
+     *  用于区分读取 UID（唯一 ID）使用的命令类型，例如 0x4B、0x5A 等
+     */
     uint8_t uid_type : 4;
-    /** whether cpid is supported */
+
+    /** 是否支持 Chip Package ID（CPID）读取（低 4 位）
+     *  一些厂商扩展提供 Chip ID 读取功能
+     */
     uint8_t cpid_type : 4;
-    /** minimal security register number */
+
+    /** 最小的安全寄存器块编号（4 位）
+     *  表示安全寄存器支持的起始块编号
+     */
     uint8_t sreg_min_num : 4;
-    /** maximum security register number */
+
+    /** 最大的安全寄存器块编号（4 位）
+     *  表示安全寄存器支持的最大块数（一般用于循环读写校验）
+     */
     uint8_t sreg_max_num : 4;
-    /** whether volatile sr is supported */
+
+    /** 是否支持 volatile status register（SR）写入（1 位）
+     *  表示是否支持“易失性”状态寄存器写入，掉电丢失
+     */
     bool volatile_sr_en : 1;
-    /** whether suspend resume is supported */
+
+    /** 是否支持擦除挂起/恢复功能（1 位）
+     *  表示是否支持在擦除过程中使用挂起/恢复命令，提高响应速度
+     */
     bool suspend_en : 1;
-    /** whether 5AH to read SFDP supported */
+
+    /** 是否支持使用 0x5AH 指令读取 SFDP 表（1 位）
+     *  SFDP: Serial Flash Discoverable Parameters，通用参数表
+     */
     bool sfdp_en : 1;
-    /** whether 01H can write both SR1 and SR2 */
+
+    /** 是否支持使用 0x01H 一次写入 SR1+SR2（1 位）
+     *  一些 Flash 支持同时写入两个状态寄存器
+     */
     bool write_sr12 : 1;
-    /** whether 35H can read SR2 */
+
+    /** 是否支持使用 0x35H 读取 SR2 状态寄存器（1 位）
+     *  SR2 通常用于扩展标志位（如 Quad Enable 等）
+     */
     bool has_sr2 : 1;
-    /** whether has GD_SR_SUS1 */
+
+    /** 是否具有 GigaDevice 定义的 SR_SUS1 位（1 位）
+     *  表示是否包含 GigaDevice 特有的擦除挂起状态位
+     */
     bool has_sus1 : 1;
-    /** whether has GD_SR_SUS2 */
+
+    /** 是否具有 GigaDevice 定义的 SR_SUS2 位（1 位） */
     bool has_sus2 : 1;
+
 } halSpiFlash_t;
+
 
 /**
  * \brief write enable
