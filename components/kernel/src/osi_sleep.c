@@ -816,8 +816,8 @@ void quec_print_os_pm_state(void)
 		{
 			if (p->active == 1)
 			{
-				//openÏîÄ¿ÏÂ£¬Îª¼æÈÝÆäËûÄ£¿é£¬tagÎª´úÂë·ÖÅä£¬·Ç±ê×¼×Ö·û×ªÊý×Ö£¬Òò´Ë²»ÄÜÓÃsleep_tag_to_name
-				if((p->tag & 0x00FFFFFF) == (DRV_NAME_OPEN_SLEEP_TAG & 0x00FFFFFF)) //openÏîÄ¿ÏÂ£¬tagµÍ24Î»¸ø¶¨ 
+				//openï¿½ï¿½Ä¿ï¿½Â£ï¿½Îªï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä£ï¿½é£¬tagÎªï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ä£¬ï¿½Ç±ï¿½×¼ï¿½Ö·ï¿½×ªï¿½ï¿½ï¿½Ö£ï¿½ï¿½ï¿½Ë²ï¿½ï¿½ï¿½ï¿½ï¿½sleep_tag_to_name
+				if((p->tag & 0x00FFFFFF) == (DRV_NAME_OPEN_SLEEP_TAG & 0x00FFFFFF)) //openï¿½ï¿½Ä¿ï¿½Â£ï¿½tagï¿½ï¿½24Î»ï¿½ï¿½ï¿½ï¿½ 
 				{
 					pm_info_t pm_info;
 					if(pmsoucre_get_list(p->tag, &pm_info, NULL) != 0)

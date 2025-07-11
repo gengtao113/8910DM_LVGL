@@ -2046,21 +2046,36 @@ void vTaskSuspendAll( void )
 /*----------------------------------------------------------*/
 
 #if ( configUSE_TICKLESS_IDLE != 0 )
-
+/**
+ * @brief      获取系统预期空闲的 Tick 数，用于 Tickless Idle 省电机制。
+ *
+ * @details
+ * 本函数用于评估当前系统是否可以进入空闲（Tickless Idle）模式，以及最多可空闲多长时间。
+ * 如果没有高优先级任务处于就绪状态，当前任务为 idle，且没有其他 idle 优先级任务等待运行，
+ * 则返回下一个待唤醒任务的时间与当前 tick 的差值作为空闲时间。
+ * 否则，返回 0，表示不建议进入 sleep。
+ *
+ * @return TickType_t 最大可空闲 tick 数（单位为 Tick），若返回 0 则不 sleep。
+ */
 	static TickType_t prvGetExpectedIdleTime( void )
 	{
+	// 最终返回值：预期空闲 Tick 数
 	TickType_t xReturn;
+	// 标志位：是否存在更高优先级的 ready 任务
 	UBaseType_t uxHigherPriorityReadyTasks = pdFALSE;
 
 		/* uxHigherPriorityReadyTasks takes care of the case where
 		configUSE_PREEMPTION is 0, so there may be tasks above the idle priority
 		task that are in the Ready state, even though the idle task is
 		running. */
+		// --------------------------------------------
+		// 检查是否存在比 idle 更高优先级的任务处于 ready
+		// --------------------------------------------
 		#if( configUSE_PORT_OPTIMISED_TASK_SELECTION == 0 )
 		{
 			if( uxTopReadyPriority > tskIDLE_PRIORITY )
 			{
-				uxHigherPriorityReadyTasks = pdTRUE;
+				uxHigherPriorityReadyTasks = pdTRUE;// 有更高优先级任务就绪
 			}
 		}
 		#else
@@ -2072,33 +2087,44 @@ void vTaskSuspendAll( void )
 			significant bit are set then there are tasks that have a priority
 			above the idle priority that are in the Ready state.  This takes
 			care of the case where the co-operative scheduler is in use. */
+			// 如果优先级位图中除了最低位还有其他位，说明有高优先级任务
 			if( uxTopReadyPriority > uxLeastSignificantBit )
 			{
 				uxHigherPriorityReadyTasks = pdTRUE;
 			}
 		}
 		#endif
-
+		// --------------------------------------------------------
+		// 条件 1：当前运行的任务优先级高于 idle，表示 idle 没有调度
+		// --------------------------------------------------------
 		if( pxCurrentTCB->uxPriority > tskIDLE_PRIORITY )
 		{
-			xReturn = 0;
-		}
+			xReturn = 0; // 不可 sleep
+		}		
+		// --------------------------------------------------------
+		// 条件 2：idle 优先级下有多个任务需要轮转（time slicing）
+		// --------------------------------------------------------
 		else if( listCURRENT_LIST_LENGTH( &( pxReadyTasksLists[ tskIDLE_PRIORITY ] ) ) > 1 )
 		{
 			/* There are other idle priority tasks in the ready state.  If
 			time slicing is used then the very next tick interrupt must be
 			processed. */
 			xReturn = 0;
-		}
+		} 
+		// --------------------------------------------------------
+		// 条件 3：有高优先级任务处于 ready 状态（如非抢占式调度）
+		// --------------------------------------------------------
 		else if( uxHigherPriorityReadyTasks != pdFALSE )
 		{
 			/* There are tasks in the Ready state that have a priority above the
 			idle priority.  This path can only be reached if
 			configUSE_PREEMPTION is 0. */
+			// 不可 sleep
 			xReturn = 0;
 		}
 		else
 		{
+			// 所有条件都满足，可以安全进入 sleep，计算可空闲时间
 			xReturn = xNextTaskUnblockTime - xTickCount;
 		}
 
@@ -3232,11 +3258,18 @@ void vTaskMissedYield( void )
  * language extensions.  The equivalent prototype for this function is:
  *
  * void prvIdleTask( void *pvParameters );
+ * 
+ * 这是 FreeRTOS 默认空闲任务（Idle Task），由调度器在启动时自动创建。主要职责包括：
+ *回收已删除任务的资源（TCB 和栈空间）
+ *在 非抢占式调度中强制执行任务切换
+ *支持 configIDLE_SHOULD_YIELD 时做公平调度
+ *调用用户钩子 vApplicationIdleHook()
+ *如果启用 configUSE_TICKLESS_IDLE，控制 MCU 低功耗休眠
  *
  */
 static portTASK_FUNCTION( prvIdleTask, pvParameters )
 {
-	/* Stop warnings. */
+	// 避免编译器警告未使用参数
 	( void ) pvParameters;
 
 	/** THIS IS THE RTOS IDLE TASK - WHICH IS CREATED AUTOMATICALLY WHEN THE
@@ -3245,14 +3278,18 @@ static portTASK_FUNCTION( prvIdleTask, pvParameters )
 	/* In case a task that has a secure context deletes itself, in which case
 	the idle task is responsible for deleting the task's secure context, if
 	any. */
+	// 告知编译器该任务将调用安全上下文函数（适用于 ARM TrustZone 等）
 	portTASK_CALLS_SECURE_FUNCTIONS();
 
+	// 永久运行循环，空闲任务永不退出
 	for( ;; )
 	{
 		/* See if any tasks have deleted themselves - if so then the idle task
 		is responsible for freeing the deleted task's TCB and stack. */
+		//若其他任务调用了 vTaskDelete() 删除自己（自杀），它的 TCB/栈会延迟由空闲任务来释放
 		prvCheckTasksWaitingTermination();
-
+		
+		//如果不使用抢占式调度，空闲任务必须通过 taskYIELD() 主动放弃 CPU，切换其他就绪任务
 		#if ( configUSE_PREEMPTION == 0 )
 		{
 			/* If we are not using preemption we keep forcing a task switch to
@@ -3262,7 +3299,10 @@ static portTASK_FUNCTION( prvIdleTask, pvParameters )
 			taskYIELD();
 		}
 		#endif /* configUSE_PREEMPTION */
-
+        /**
+		 *  同优先级轮转调度（协助公平性）
+		 *  启用 IDLE_SHOULD_YIELD 后，空闲任务将尝试轮转，让出给其它同优先级任务（通常是动态生成的 Idle 级后台任务）
+		 */
 		#if ( ( configUSE_PREEMPTION == 1 ) && ( configIDLE_SHOULD_YIELD == 1 ) )
 		{
 			/* When using preemption tasks of equal priority will be
@@ -3276,15 +3316,21 @@ static portTASK_FUNCTION( prvIdleTask, pvParameters )
 			then a task other than the idle task is ready to execute. */
 			if( listCURRENT_LIST_LENGTH( &( pxReadyTasksLists[ tskIDLE_PRIORITY ] ) ) > ( UBaseType_t ) 1 )
 			{
+				// 如果有其它同优先级任务，主动让出 CPU
 				taskYIELD();
 			}
 			else
 			{
+				// 测试用 marker，不执行任何功能
 				mtCOVERAGE_TEST_MARKER();
 			}
 		}
 		#endif /* ( ( configUSE_PREEMPTION == 1 ) && ( configIDLE_SHOULD_YIELD == 1 ) ) */
-
+        /**
+		 * 执行用户定义的空闲钩子函数
+		 * :用户可在此自定义后台操作（如 CPU 利用率计算），不能阻塞或使用 delay 等函数，否则破坏调度。
+		 * 
+		 * */
 		#if ( configUSE_IDLE_HOOK == 1 )
 		{
 			extern void vApplicationIdleHook( void );
@@ -3302,6 +3348,7 @@ static portTASK_FUNCTION( prvIdleTask, pvParameters )
 		to 1.  This is to ensure portSUPPRESS_TICKS_AND_SLEEP() is called when
 		user defined low power mode	implementations require
 		configUSE_TICKLESS_IDLE to be set to a value other than 1. */
+		// Tickless Sleep 支持（低功耗）
 		#if ( configUSE_TICKLESS_IDLE != 0 )
 		{
 		TickType_t xExpectedIdleTime;
@@ -3311,39 +3358,47 @@ static portTASK_FUNCTION( prvIdleTask, pvParameters )
 			test of the expected idle time is performed without the
 			scheduler suspended.  The result here is not necessarily
 			valid. */
+			// 获取预期空闲时间（单位 Tick）
 			xExpectedIdleTime = prvGetExpectedIdleTime();
 
+			// 若大于设定门槛，则尝试进入低功耗模式
+			//只有当预计空闲时间 xExpectedIdleTime 不小于设定的门槛值 configEXPECTED_IDLE_TIME_BEFORE_SLEEP 时，系统才会尝试进入低功耗（Tickless Idle 模式）。
 			if( xExpectedIdleTime >= configEXPECTED_IDLE_TIME_BEFORE_SLEEP )
 			{
+				// 先挂起调度器，防止任务切入影响计算
 				vTaskSuspendAll();
 				{
 					/* Now the scheduler is suspended, the expected idle
 					time can be sampled again, and this time its value can
 					be used. */
+					// 确保任务唤醒时间未过
 					configASSERT( xNextTaskUnblockTime >= xTickCount );
+					// 再次获取空闲时间，确保准确
 					xExpectedIdleTime = prvGetExpectedIdleTime();
 
 					/* Define the following macro to set xExpectedIdleTime to 0
 					if the application does not want
 					portSUPPRESS_TICKS_AND_SLEEP() to be called. */
+					// 用户可在此 Hook 中修改 xExpectedIdleTime 或放弃 sleep
 					configPRE_SUPPRESS_TICKS_AND_SLEEP_PROCESSING( xExpectedIdleTime );
-
+					//只有当预计空闲时间 xExpectedIdleTime 不小于设定的门槛值 configEXPECTED_IDLE_TIME_BEFORE_SLEEP 时，系统才会尝试进入低功耗（Tickless Idle 模式）。
 					if( xExpectedIdleTime >= configEXPECTED_IDLE_TIME_BEFORE_SLEEP )
 					{
-						traceLOW_POWER_IDLE_BEGIN();
-						portSUPPRESS_TICKS_AND_SLEEP( xExpectedIdleTime );
-						traceLOW_POWER_IDLE_END();
+						traceLOW_POWER_IDLE_BEGIN(); // 进入低功耗的 trace 标记
+						//	#define portSUPPRESS_TICKS_AND_SLEEP( xExpectedIdleTime ) osiIdleSleep( xExpectedIdleTime )
+						portSUPPRESS_TICKS_AND_SLEEP( xExpectedIdleTime );// 核心低功耗函数
+						traceLOW_POWER_IDLE_END(); // 退出低功耗 trace
 					}
 					else
 					{
-						mtCOVERAGE_TEST_MARKER();
+						mtCOVERAGE_TEST_MARKER();// 测试覆盖标记
 					}
 				}
-				( void ) xTaskResumeAll();
+				( void ) xTaskResumeAll(); // 恢复调度器
 			}
 			else
 			{
-				mtCOVERAGE_TEST_MARKER();
+				mtCOVERAGE_TEST_MARKER();// 预计空闲不足，跳过低功耗
 			}
 		}
 		#endif /* configUSE_TICKLESS_IDLE */

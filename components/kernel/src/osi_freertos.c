@@ -719,16 +719,33 @@ bool osiSemaphoreTryAcquire(osiSemaphore_t *sem, uint32_t timeout)
     return xSemaphoreTake((QueueHandle_t)sem, osiMsToOSTick(timeout)) == pdPASS;
 }
 
+/**
+ * @brief 释放一个信号量（Semaphore），用于通知等待线程。
+ *
+ * @param sem 指向要释放的信号量对象。
+ *
+ * @note
+ * - 这是一个适配 FreeRTOS 的封装函数。
+ * - 兼容线程上下文和中断上下文（ISR）。
+ * - 如果在中断中调用，会使用 `xSemaphoreGiveFromISR()`。
+ */
 void osiSemaphoreRelease(osiSemaphore_t *sem)
 {
+     // 如果当前是在中断（ISR）上下文中执行
     if (IS_IRQ())
     {
+        // 定义一个标志变量：记录是否需要在中断退出时触发上下文切换
         BaseType_t yield = pdFALSE;
+        // 在中断中释放信号量（非阻塞）
+        // 如果成功唤醒了更高优先级的任务，yield 将被置为 pdTRUE
         xSemaphoreGiveFromISR((QueueHandle_t)sem, &yield);
+        // 根据 yield 的值决定是否在中断结束后进行任务切换
+        // 提高系统响应性，立刻切到高优任务
         portYIELD_FROM_ISR(yield);
     }
     else
     {
+        // 普通线程/任务上下文中，直接释放信号量
         xSemaphoreGive((QueueHandle_t)sem);
     }
 }
