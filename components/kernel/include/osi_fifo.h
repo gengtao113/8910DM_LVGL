@@ -22,16 +22,23 @@ extern "C" {
 #endif
 
 /**
- * \brief OSI FIFO data structure
+ * @brief 通用环形 FIFO 缓冲区结构体
  *
- * Don't access the field members directly. Rather FIFO APIs should be used.
+ * 本结构体用于实现无锁或轻量锁保护的**环形缓冲区（FIFO）**机制，适用于任务间通信、
+ * 串口接收缓存、日志缓冲、音频数据传输等应用场景。
+ *
+ * - 数据以字节流形式存储在外部分配的缓冲区 `data` 中
+ * - 使用两个指针 `rd` 和 `wr` 分别指示读写位置（逻辑索引）
+ * - 数据存储空间大小由 `size` 字段指定，**不包含结构体本身**
+ *
+ * @note 本结构体本身不包含并发保护，需由调用者在多线程场景中加锁
  */
 typedef struct osiFifo
 {
-    void *data;  ///< FIFO buffer
-    size_t size; ///< FIFO buffer size
-    size_t rd;   ///< FIFO read pointer
-    size_t wr;   ///< FIFO write pointer
+    void *data;  ///< FIFO 缓冲区首地址（调用者分配）
+    size_t size; ///< FIFO 缓冲区大小（单位：字节）
+    size_t rd;   ///< 当前读取位置指针（逻辑位置，不是实际地址）
+    size_t wr;   ///< 当前写入位置指针（逻辑位置，不是实际地址）
 } osiFifo_t;
 
 /**
