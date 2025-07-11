@@ -314,31 +314,57 @@ static void _wqThreadEntry(void *argument)
     // 正常退出线程
     osiThreadExit();
 }
+/**
+ * @brief 创建一个工作队列对象（带工作线程和调度机制）
+ *
+ * 工作队列用于在独立线程中顺序执行异步任务（如回调函数、耗时操作等），
+ * 它包含一个工作项链表、一个调度线程以及两个用于同步的信号量。
+ *
+ * @param name         工作线程名（便于调试）
+ * @param thread_count 保留参数（当前仅支持 1）
+ * @param priority     工作线程的优先级
+ * @param stack_size   工作线程的栈大小（字节）
+ * @return 成功时返回工作队列对象指针，失败时返回 NULL
+ *
+ * @note 工作队列的线程会运行 `_wqThreadEntry()` 函数，不断处理已提交的任务。
+ */
 
 osiWorkQueue_t *osiWorkQueueCreate(const char *name, size_t thread_count, uint32_t priority, uint32_t stack_size)
 {
+    // 分配工作队列对象的内存，并清零
     osiWorkQueue_t *wq = calloc(1, sizeof(*wq));
     if (wq == NULL)
         return NULL;
 
+    // 初始化工作队列链表（任务列表）
     TAILQ_INIT(&wq->work_list);
+
+    // 标记该工作队列处于运行状态
     wq->running = true;
 
+    // 创建用于工作线程唤醒的信号量，初始值为 1（允许进入）
     wq->work_sema = osiSemaphoreCreate(1, 1);
+    // 创建用于等待所有任务完成的信号量，初始为 0（阻塞）
     wq->finish_sema = osiSemaphoreCreate(1, 0);
+    // 创建信号量失败，跳转至清理逻辑
     if (wq->work_sema == NULL || wq->finish_sema == NULL)
         goto failed;
 
+    // 创建专用的工作线程，线程入口函数为 _wqThreadEntry，参数为当前工作队列对象
     wq->thread = osiThreadCreate(name, _wqThreadEntry, wq, priority, stack_size, 0);
     OSI_LOGD(0, "work queue create thread %p", wq->thread);
+    // 创建线程失败，跳转至清理逻辑
     if (wq->thread == NULL)
         goto failed;
 
+    // 所有资源初始化成功，返回工作队列指针
     return wq;
 
 failed:
+    // 清理已分配的信号量资源
     osiSemaphoreDelete(wq->work_sema);
     osiSemaphoreDelete(wq->finish_sema);
+    // 释放工作队列结构体内存
     free(wq);
     return NULL;
 }

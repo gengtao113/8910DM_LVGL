@@ -536,63 +536,95 @@ bool osiEventWait(osiThread_t *thread, osiEvent_t *event)
 {
     return osiEventTryWait(thread, event, OSI_WAIT_FOREVER);
 }
+/**
+ * @brief 等待并处理线程事件（带超时）
+ *
+ * 尝试从线程事件队列中读取一个事件，并根据事件类型执行相应的处理逻辑（如：定时器触发、回调函数调用、通知处理等）。
+ * 本函数具有阻塞特性，但最多等待 `timeout` 毫秒。
+ *
+ * @param thread  目标线程对象指针
+ * @param event   事件接收缓存指针（结果返回）
+ * @param timeout 超时时间（单位：毫秒）
+ * @return true 表示成功获取并处理事件，false 表示超时或失败
+ *
+ * @note
+ * - 不可在中断中调用（IS_IRQ 检查）
+ * - 支持多种事件类型（ID 区分）
+ * - 内部自动调用事件的回调处理函数
+ */
 
 bool osiEventTryWait(osiThread_t *thread, osiEvent_t *event, uint32_t timeout)
 {
+    // 若在中断上下文中或传入参数非法，则直接返回失败
     if (IS_IRQ() || thread == NULL || event == NULL)
         return false;
 
+    // 获取线程对应的事件队列
     osiEventQueue_t *queue = osiThreadEventQueue(thread);
     if (queue == NULL)
         return false;
 
+    // 阻塞等待事件，超时时间为 `timeout` 毫秒
     if (xQueueReceive((QueueHandle_t)queue, event, osiMsToOSTick(timeout)) == pdPASS)
     {
+        // 根据事件 ID 类型分发处理逻辑
         if (event->id == OSI_EVENT_ID_TIMER)
         {
+            // 处理定时器事件
             osiTimerEventInvoke(event);
         }
         else if (event->id == OSI_EVENT_ID_CALLBACK)
         {
+            // 执行通用回调函数
             osiCallback_t cb = (osiCallback_t)event->param1;
             if (cb != NULL)
-                cb((void *)event->param2);
-            event->id = OSI_EVENT_ID_NONE;
+                cb((void *)event->param2);  // 调用传入的回调函数，参数为 param2
+            event->id = OSI_EVENT_ID_NONE;  // 标记事件已处理
         }
         else if (event->id == OSI_EVENT_ID_NOTIFY)
         {
-            uint32_t critical = osiEnterCritical();
+            // 处理通知事件（内部封装结构）
+            uint32_t critical = osiEnterCritical();  // 进入临界区
             osiCallback_t cb = NULL;
             osiNotify_t *notify = (osiNotify_t *)event->param1;
+
             if (notify->status == OSI_NOTIFY_QUEUED_DELETE)
             {
+                // 若该通知对象被标记为删除，释放资源
                 free(notify);
             }
             else if (notify->status == OSI_NOTIFY_QUEUED_ACTIVE)
             {
+                // 若通知为活动状态，获取其回调函数，并设置为 IDLE
                 cb = notify->cb;
                 notify->status = OSI_NOTIFY_IDLE;
             }
             else
             {
+                // 其它状态也转为 IDLE
                 notify->status = OSI_NOTIFY_IDLE;
             }
-            osiExitCritical(critical);
 
+            osiExitCritical(critical);  // 退出临界区
+
+            // 执行回调函数（如有）
             if (cb != NULL)
                 cb(notify->ctx);
             event->id = OSI_EVENT_ID_NONE;
         }
         else if (event->id == OSI_EVENT_ID_QUIT)
         {
-            // the first parameter is semaphore
+            // 线程退出事件，释放绑定信号量
             osiSemaphore_t *sema = (osiSemaphore_t *)event->param1;
             if (sema != NULL)
-                osiSemaphoreRelease(sema);
+                osiSemaphoreRelease(sema);  // 通知退出完成
         }
+
+        // 表示事件已处理
         return true;
     }
 
+    // 超时未收到事件
     return false;
 }
 
@@ -637,24 +669,55 @@ uint32_t osiEventSpaceCount(osiThread_t *thread)
     // design, this implementation can support this.
     return uxQueueSpacesAvailable((QueueHandle_t)queue);
 }
+/**
+ * @brief 向指定线程投递一个回调事件（异步执行）
+ *
+ * 本函数允许在任意线程或中断上下文中，向目标线程投递一个回调函数请求，回调函数将在目标线程的事件循环中异步执行。
+ *
+ * @param thread   目标线程对象指针
+ * @param cb       需要在目标线程中异步执行的回调函数
+ * @param cb_ctx   回调函数的上下文参数指针
+ *
+ * @return true 表示成功投递事件；false 表示参数错误或投递失败
+ *
+ * @note 本函数常用于主线程、驱动、ISR 中异步通知应用层任务执行逻辑。
+ * ✅ 示例使用场景
+        在某个中断或驱动中调用该函数，可以异步将逻辑传递到主线程执行，避免在中断中执行耗时操作：
+        void uart_rx_isr_handler(void)
+        {
+            // 在中断中通知线程处理数据
+            osiThreadCallback(uart_thread, uart_rx_process, uart_rx_ctx);
+        }
 
+        void uart_rx_process(void *ctx)
+        {
+            // 在应用线程中执行具体业务逻辑
+            ...
+        }
+
+ */
 bool osiThreadCallback(osiThread_t *thread, osiCallback_t cb, void *cb_ctx)
 {
+    // 参数校验：线程或回调函数为空则失败
     if (thread == NULL || cb == NULL)
         return false;
 
+    // 构造一个通用事件结构，用于传递回调请求
     osiEvent_t event = {
-        .id = OSI_EVENT_ID_CALLBACK,
-        .param1 = (uint32_t)cb,
-        .param2 = (uint32_t)cb_ctx,
-        .param3 = 0,
+        .id     = OSI_EVENT_ID_CALLBACK,  // 标识为回调类型事件
+        .param1 = (uint32_t)cb,           // 存储回调函数指针
+        .param2 = (uint32_t)cb_ctx,       // 存储回调函数的上下文参数
+        .param3 = 0,                      // 预留字段，未使用
     };
 
+    // 如果当前在中断上下文中（ISR），使用非阻塞的发送方式
     if (IS_IRQ())
         return osiEventTrySend(thread, &event, 0);
 
+    // 否则使用普通阻塞式事件发送
     return osiEventSend(thread, &event);
 }
+
 
 osiMutex_t *osiMutexCreate(void)
 {
