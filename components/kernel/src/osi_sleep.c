@@ -431,23 +431,35 @@ static bool prvSuspendPermitted(osiPmContext_t *d)
     }
     return false;
 }
-
+/**
+ * @brief       判断是否允许进入 32K 睡眠（低功耗）模式。
+ *
+ * @details
+ * 此函数用于判断当前系统状态是否允许进入低功耗的 32K 时钟睡眠模式。
+ * 判断条件包括：系统是否已经启动、是否存在活跃任务、芯片是否允许挂起等。
+ * 若任一条件不满足，则返回 false，表示不允许休眠。
+ *
+ * @param[in]   d  指向系统电源管理上下文结构体的指针（osiPmContext_t）。
+ *
+ * @return      true 表示可以进入 32K 睡眠；false 表示不允许。
+ */
 static bool prv32KSleepPermitted(osiPmContext_t *d)
 {
 
 #ifndef CONFIG_QUEC_PROJECT_FEATURE_USB_SUSPEND
+    // 如果未启用 USB 挂起特性，直接禁止进入 32K 睡眠
 	return false;
 #endif
-
+    // 系统尚未启动，不允许进入睡眠
     if (!d->started)
         return false;
-
+    // 活跃任务队列非空，表示还有模块未准备好，不允许进入睡眠
     if (!TAILQ_EMPTY(&d->active_list))
         return false;
-
+    // 芯片级别不允许 suspend，例如当前有外设阻止睡眠
     if (!osiChipSuspendPermitted())
         return false;
-
+    // 所有条件满足，可以进入 32K 低功耗睡眠
     return true;
 }
 

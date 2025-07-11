@@ -169,9 +169,25 @@ osiThread_t *osiThreadCreateWithStack(const char *name, osiCallback_t func, void
     osiSchedulerResume(flag);
     return (osiThread_t *)hTask;
 }
-
+/*
+ * Function Name  : osiThreadEventQueue
+ * Description    : 获取指定线程关联的事件队列指针（osiEventQueue_t*）
+ *                  本质上是从线程局部存储中读取特定索引的值。
+ *
+ * Input          :
+ *      thread - 目标线程句柄（osiThread_t*，实际为 TaskHandle_t）
+ *
+ * Output         : None
+ * Return         :
+ *      返回线程局部存储索引 `OSI_THREAD_LOCAL_EVENTQUEUE_ID` 所关联的指针
+ *
+ * Note:
+ *   - 要求在创建线程时，已通过 `vTaskSetThreadLocalStoragePointer()` 设置好对应的事件队列。
+ *   - 此设计用于在不修改 FreeRTOS 内核结构的前提下，为线程绑定事件队列。
+ */
 osiEventQueue_t *osiThreadEventQueue(osiThread_t *thread)
 {
+     // 调用 FreeRTOS 提供的线程局部存储读取函数
     return pvTaskGetThreadLocalStoragePointer((TaskHandle_t)thread, OSI_THREAD_LOCAL_EVENTQUEUE_ID);
 }
 
@@ -394,39 +410,68 @@ uint32_t osiMessageQueueSpaceCount(osiMessageQueue_t *mq)
     // design, this implementation can support this.
     return uxQueueSpacesAvailable((QueueHandle_t)mq);
 }
+/*
+ * Function Name  : osiEventSend
+ * Description    : 向指定线程发送异步事件（event），可用于跨线程消息通知。
+ *                  支持普通线程上下文和中断上下文（ISR）中调用。
+ *
+ * Input          :
+ *      thread : 目标线程的句柄（osiThread_t）
+ *      event  : 要发送的事件指针，内容由调用者填充
+ *
+ * Output         : None
+ * Return         :
+ *      true  : 发送成功
+ *      false : 参数无效，或队列已满，或失败
+ *
+ * Note:
+ *   - 在线程上下文中若发送给自身线程，发送失败会 panic。
+ *   - 在 ISR 中使用 FreeRTOS 提供的 FromISR 接口 + yield。
+ *   - 不建议事件体结构包含大块数据，仅传递指针或标识。
+ */
+
 
 bool osiEventSend(osiThread_t *thread, const osiEvent_t *event)
 {
+    // 检查参数合法性
     if (thread == NULL || event == NULL)
         return false;
-
+    // 获取目标线程的事件队列（每个线程应有一个）
     osiEventQueue_t *queue = osiThreadEventQueue(thread);
     if (queue == NULL)
         return false;
-
+    // ============ ISR 上下文处理逻辑 =============
     if (IS_IRQ())
     {
         BaseType_t yield = pdFALSE;
+        // 在中断中发送事件到队列尾部（FromISR 版本）
         if (xQueueSendToBackFromISR((QueueHandle_t)queue, event, &yield) != pdPASS)
             return false;
-
+        // 若发送事件后需要任务切换，则触发中断后上下文切换
         portYIELD_FROM_ISR(yield);
         return true;
     }
-
+    // ============ 非中断上下文处理逻辑 =============
+    // 如果是向当前线程自身发送事件
     if ((TaskHandle_t)thread == xTaskGetCurrentTaskHandle())
     {
+        // 向自身线程的队列发送事件（非阻塞）
         if (xQueueSendToBack((QueueHandle_t)queue, event, 0) != pdPASS)
         {
+             // 若失败，输出错误日志并触发系统错误（崩溃处理）
             OSI_LOGE(0, "failed to send event to current thread");
+            // 可根据系统配置替换为 assert 或 halt
             osiPanic();
         }
         return true;
     }
 
+    // ============ 发送给其他线程（阻塞式）============
 #ifndef CONFIG_QUEC_PROJECT_FEATURE
+    // 阻塞直到发送成功（无超时）
     return xQueueSendToBack((QueueHandle_t)queue, event, portMAX_DELAY) == pdPASS;
 #else
+    // 修改为最长阻塞 1000ms，避免死锁
 	return xQueueSendToBack((QueueHandle_t)queue, event, 1000) == pdPASS;    //avoid task bloced forever here
 #endif
 

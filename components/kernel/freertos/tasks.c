@@ -303,6 +303,7 @@ typedef struct tskTaskControlBlock
 	#endif
 
 	#if( configNUM_THREAD_LOCAL_STORAGE_POINTERS > 0 )
+	// 结构说明：线程局部存储机制（FreeRTOS）:FreeRTOS 会在每个任务控制块 TCB 中分配一个指针数组
 		void			*pvThreadLocalStoragePointers[ configNUM_THREAD_LOCAL_STORAGE_POINTERS ];
 	#endif
 
@@ -3463,19 +3464,38 @@ static portTASK_FUNCTION( prvIdleTask, pvParameters )
 /*-----------------------------------------------------------*/
 
 #if ( configNUM_THREAD_LOCAL_STORAGE_POINTERS != 0 )
-
+/*
+ * Function Name  : pvTaskGetThreadLocalStoragePointer
+ * Description    : 从指定线程的 TCB 中获取某个索引处的线程局部存储指针
+ *
+ * Input          :
+ *      xTaskToQuery - 要查询的任务（线程）句柄
+ *      xIndex       - 存储槽的索引（小于 configNUM_THREAD_LOCAL_STORAGE_POINTERS）
+ *
+ * Output         : None
+ * Return         :
+ *      指向存储在该线程 TCB 中指定索引位置的 void* 指针。
+ *      若索引越界，返回 NULL。
+ *
+ * Note:
+ *   - 本函数适用于在 FreeRTOS 启用线程局部存储功能时（需配置宏支持）。
+ *   - 每个线程有一个指针数组用于绑定自定义数据，例如事件队列、线程上下文等。
+ */
 	void *pvTaskGetThreadLocalStoragePointer( TaskHandle_t xTaskToQuery, BaseType_t xIndex )
 	{
 	void *pvReturn = NULL;
 	TCB_t *pxTCB;
-
+		// 如果索引在合法范围内
 		if( xIndex < configNUM_THREAD_LOCAL_STORAGE_POINTERS )
 		{
+			// 获取线程的 TCB（任务控制块）指针
 			pxTCB = prvGetTCBFromHandle( xTaskToQuery );
+			 // 从 TCB 中读取线程局部存储的指定槽位指针
 			pvReturn = pxTCB->pvThreadLocalStoragePointers[ xIndex ];
 		}
 		else
 		{
+			// 索引越界则返回 NULL
 			pvReturn = NULL;
 		}
 

@@ -47,10 +47,10 @@ typedef enum
 
 struct osiNotify
 {
-    osiThread_t *thread;
-    osiCallback_t cb;
-    void *ctx;
-    osiNotifyStatus_t status;
+    osiThread_t *thread;   // 回调将在哪个线程中触发
+    osiCallback_t cb;      // 回调函数
+    void *ctx;             // 回调上下文（用户数据）
+    osiNotifyStatus_t status; // 通知状态（空闲/挂起）
 };
 
 typedef struct

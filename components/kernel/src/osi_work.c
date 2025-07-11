@@ -373,19 +373,39 @@ void osiSysWorkQueueInit(void)
             "wq_fs", 1, OSI_PRIORITY_BELOW_NORMAL, CONFIG_KERNEL_FILE_WRITE_WQ_STACKSIZE);
 }
 
+/*
+ * Function Name  : osiNotifyCreate
+ * Description    : 创建一个通知对象（osiNotify_t 实例），用于在指定线程中触发回调函数。
+ *                  可用于线程间异步事件通知，配合 osiNotifyTrigger 使用。
+ * Input          : 
+ *      thread : 指向目标线程的指针（回调将在此线程上下文中执行）
+ *      cb     : 通知回调函数指针，不能为空
+ *      ctx    : 用户自定义的上下文指针，将在回调时传入
+ * Output         : 无
+ * Return         : 
+ *      成功时返回分配并初始化好的通知对象指针；
+ *      失败（如分配内存失败或参数非法）返回 NULL。
+ */
+
 osiNotify_t *osiNotifyCreate(osiThread_t *thread, osiCallback_t cb, void *ctx)
 {
+    // 基本参数检查：回调函数和目标线程不能为空
     if (cb == NULL || thread == NULL)
         return NULL;
-
+    // 为通知对象结构体分配内存（此对象生命周期需调用者自行管理）
     osiNotify_t *notify = malloc(sizeof(osiNotify_t));
+    // 内存分配失败，返回 NULL
     if (notify == NULL)
         return NULL;
-
+    // 设置通知目标线程（回调将通过此线程的消息机制触发）
     notify->thread = thread;
+    // 设置通知的回调函数指针
     notify->cb = cb;
+    // 保存用户上下文指针（用于回调时传入）
     notify->ctx = ctx;
+    // 初始化通知状态为“空闲”
     notify->status = OSI_NOTIFY_IDLE;
+    // 返回创建好的通知对象
     return notify;
 }
 
@@ -402,23 +422,46 @@ void osiNotifyDelete(osiNotify_t *notify)
     osiExitCritical(critical);
 }
 
+/*
+ * Function Name  : osiNotifyTrigger
+ * Description    : 触发指定的通知对象，在其关联线程中异步执行回调函数。
+ *                  通知机制基于事件队列，线程收到事件后将调用 notify->cb。
+ *
+ * Input          : 
+ *      notify : 要触发的通知对象指针，由 osiNotifyCreate 创建。
+ * Output         : None
+ * Return         : None
+ *
+ * Notes:
+ *   - 此函数是线程安全的，可从任意线程触发。
+ *   - 回调将在目标线程的上下文中执行，确保不会跨线程执行。
+ *   - 若多次触发，只会进入队列一次（除非删除状态）。
+ */
+
 void osiNotifyTrigger(osiNotify_t *notify)
 {
+    // 进入临界区，防止并发访问导致状态混乱
     uint32_t critical = osiEnterCritical();
+    // 如果通知当前处于空闲状态，说明尚未入队
     if (notify->status == OSI_NOTIFY_IDLE)
     {
+        // 构造一个事件对象，用于投递给目标线程
         osiEvent_t event = {
-            .id = OSI_EVENT_ID_NOTIFY,
-            .param1 = (uint32_t)notify,
+            .id = OSI_EVENT_ID_NOTIFY, // 通知事件 ID
+            .param1 = (uint32_t)notify,  // 将通知对象指针作为参数传入
         };
-
+        // 设置状态为“已入队激活中”
         notify->status = OSI_NOTIFY_QUEUED_ACTIVE;
+        // 向通知目标线程投递事件，线程将从队列中接收并调用 notify->cb
         osiEventSend(notify->thread, &event);
     }
+    // 如果不是已标记为“待删除”状态（QUEUED_DELETE），则仍可更新状态
     else if (notify->status != OSI_NOTIFY_QUEUED_DELETE)
     {
+        // 保持/更新状态为“激活中”，防止被错误地标记为空闲
         notify->status = OSI_NOTIFY_QUEUED_ACTIVE;
     }
+    // 离开临界区，恢复中断
     osiExitCritical(critical);
 }
 
