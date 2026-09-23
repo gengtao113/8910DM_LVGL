@@ -26,6 +26,8 @@
 | [14_OpenCPU开发说明.md](14_OpenCPU开发说明.md) | OpenCPU 模型、加载器、export/stub |
 | [15_客户SDK交付.md](15_客户SDK交付.md) | 只发 APPIMG SDK，不交内核源码 |
 | [16_客户SDK变更说明.md](16_客户SDK变更说明.md) | 对照 git status：提交哪些、忽略哪些 |
+| [17_core_export与OpenCPU原理.md](17_core_export与OpenCPU原理.md) | 导出名单、stub、tag 焊死 |
+| [18_core_export注意事项.md](18_core_export注意事项.md) | 改 list 的十条注意，每条带图 |
 
 ## 30 秒速览
 

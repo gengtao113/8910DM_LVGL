@@ -264,6 +264,8 @@ lvgl_demo.c                0x80FA0xxx                 0x80Cxxxxx
 
 新增一个给客户用的 API，必须：内核里实现 → 写进 `core_export.list` → 重编内核和应用。只改应用链不过或加载后跳飞。
 
+名单语法、`@1.0` 版本规则、本项目哪些 `ql_*` 实际导出：见 [17_core_export与OpenCPU原理.md](17_core_export与OpenCPU原理.md)。
+
 ---
 
 ## 7. 运行时还是「一个程序」
