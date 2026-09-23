@@ -124,16 +124,16 @@ void monitor_flush(lv_disp_drv_t * disp_drv, const lv_area_t * area, lv_color_t 
     int32_t y;
 #if LV_COLOR_DEPTH != 24 && LV_COLOR_DEPTH != 32    /*32 is valid but support 24 for backward compatibility too*/
     int32_t x;
-    for(y = area->y1; y <= area->y2 && y < disp_drv->ver_res; y++) {
+    for(y = area->y1; y <= area->y2 && y < MONITOR_VER_RES; y++) {
         for(x = area->x1; x <= area->x2; x++) {
-            monitor.tft_fb[y * disp_drv->hor_res + x] = lv_color_to32(*color_p);
+            monitor.tft_fb[y * MONITOR_HOR_RES + x] = lv_color_to32(*color_p);
             color_p++;
         }
 
     }
 #else
     uint32_t w = lv_area_get_width(area);
-    for(y = area->y1; y <= area->y2 && y < disp_drv->ver_res; y++) {
+    for(y = area->y1; y <= area->y2 && y < MONITOR_VER_RES; y++) {
         memcpy(&monitor.tft_fb[y * MONITOR_HOR_RES + area->x1], color_p, w * sizeof(lv_color_t));
         color_p += w;
     }
@@ -323,6 +323,10 @@ static void monitor_sdl_clean_up(void)
 
 static void monitor_sdl_init(void)
 {
+    /* Ubuntu 缩放时若不关 HiDPI，窗口客户区会大于纹理，旁边透出桌面。 */
+    SDL_SetHint(SDL_HINT_VIDEO_HIGHDPI_DISABLED, "1");
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest");
+
     /*Initialize the SDL*/
     SDL_Init(SDL_INIT_VIDEO);
 
@@ -350,13 +354,19 @@ static void window_create(monitor_t * m)
     m->renderer = SDL_CreateRenderer(m->window, -1, SDL_RENDERER_SOFTWARE);
     m->texture = SDL_CreateTexture(m->renderer,
                                 SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, MONITOR_HOR_RES, MONITOR_VER_RES);
-    SDL_SetTextureBlendMode(m->texture, SDL_BLENDMODE_BLEND);
+    SDL_SetTextureBlendMode(m->texture, SDL_BLENDMODE_NONE);
+    SDL_RenderSetLogicalSize(m->renderer, MONITOR_HOR_RES, MONITOR_VER_RES);
+    SDL_RenderSetIntegerScale(m->renderer, SDL_TRUE);
 
-    /*Initialize the frame buffer to gray (77 is an empirical value) */
+    /*Initialize the frame buffer to opaque black */
 #if MONITOR_DOUBLE_BUFFERED
     SDL_UpdateTexture(m->texture, NULL, m->tft_fb_act, MONITOR_HOR_RES * sizeof(uint32_t));
 #else
-    memset(m->tft_fb, 0x44, MONITOR_HOR_RES * MONITOR_VER_RES * sizeof(uint32_t));
+    {
+        uint32_t i;
+        uint32_t n = (uint32_t)MONITOR_HOR_RES * (uint32_t)MONITOR_VER_RES;
+        for(i = 0; i < n; i++) m->tft_fb[i] = 0xFF000000;
+    }
 #endif
 
     m->sdl_refr_qry = true;

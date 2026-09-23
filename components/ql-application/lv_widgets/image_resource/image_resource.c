@@ -29,12 +29,13 @@ image_id_enum iclv_time_get_image_id(uint8_t type,uint8_t num)
 {
     ql_rtc_time_t tm = {0};
 
-#if defined(PLATFORM_EC600)//模拟器不跑		
 	ql_rtc_get_time(&tm);
-#endif
-	//LOGI("%d-%d-%d-%d",tm.tm_year,tm.tm_mon,tm.tm_mday,tm.tm_hour);
-	
+#if defined(PLATFORM_EC600)
+	/* 板上 RTC 按 UTC，这里补成北京时间。模拟器 ql_rtc_get_time 已是 UTC+8，不再加。 */
 	tm.tm_hour += 8;
+	if (tm.tm_hour >= 24)
+		tm.tm_hour -= 24;
+#endif
 
 	if(type == 0)//小时的十位
 	{

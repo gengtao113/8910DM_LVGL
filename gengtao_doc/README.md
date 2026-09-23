@@ -28,6 +28,7 @@
 | [16_客户SDK变更说明.md](16_客户SDK变更说明.md) | 对照 git status：提交哪些、忽略哪些 |
 | [17_core_export与OpenCPU原理.md](17_core_export与OpenCPU原理.md) | 导出名单、stub、tag 焊死 |
 | [18_core_export注意事项.md](18_core_export注意事项.md) | 改 list 的十条注意，每条带图 |
+| [19_Ubuntu模拟器.md](19_Ubuntu模拟器.md) | Ubuntu 上 SDL2 跑手表 UI |
 
 ## 30 秒速览
 

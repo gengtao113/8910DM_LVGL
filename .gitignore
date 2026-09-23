@@ -6,6 +6,8 @@ man
 /out/
 /dist/
 /OpenCPU_SDK_Output/
+/simulator/lvgl/LinuxSDL2/build/
+/simulator/lvgl/LinuxSDL2/watch_sim
 /.vscode/
 
 # top files to ignore

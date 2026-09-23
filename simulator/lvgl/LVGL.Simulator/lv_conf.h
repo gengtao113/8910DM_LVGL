@@ -19,9 +19,15 @@
    Graphical settings
  *====================*/
 
-/* Maximal horizontal and vertical resolution to support by the library.*/
+/* Maximal horizontal and vertical resolution to support by the library.
+ * Windows / Linux 模拟器跟这份。板上 lvgl7_lib 仍是 CONFIG_LV_GUI_HOR_RES(128)。
+ * 表盘数字图是 128，指针盘/拨号等是 240，模拟器按 240 才能和 VS 工程一致。 */
+#ifndef LV_HOR_RES_MAX
 #define LV_HOR_RES_MAX          (240)
+#endif
+#ifndef LV_VER_RES_MAX
 #define LV_VER_RES_MAX          (240)
+#endif
 
 /* Color depth:
  * - 1:  1 byte per pixel
@@ -299,8 +305,14 @@ typedef void * lv_img_decoder_user_data_t;
  * It removes the need to manually update the tick with `lv_tick_inc`) */
 #define LV_TICK_CUSTOM     1
 #if LV_TICK_CUSTOM == 1
-#define LV_TICK_CUSTOM_INCLUDE  <Windows.h>         /*Header for the system time function*/
-#define LV_TICK_CUSTOM_SYS_TIME_EXPR (GetTickCount())     /*Expression evaluating to current system time in ms*/
+#if defined(_WIN32)
+#define LV_TICK_CUSTOM_INCLUDE  <Windows.h>
+#define LV_TICK_CUSTOM_SYS_TIME_EXPR (GetTickCount())
+#else
+#define LV_TICK_CUSTOM_INCLUDE  <stdint.h>
+uint32_t custom_tick_get(void);
+#define LV_TICK_CUSTOM_SYS_TIME_EXPR (custom_tick_get())
+#endif
 #endif   /*LV_TICK_CUSTOM*/
 
 typedef void * lv_disp_drv_user_data_t;             /*Type of user data in the display driver*/
