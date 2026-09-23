@@ -4,6 +4,8 @@ _build
 xml
 man
 /out/
+/dist/
+/OpenCPU_SDK_Output/
 /.vscode/
 
 # top files to ignore

@@ -18,6 +18,11 @@ endif()
 if(CONFIG_APPIMG_LOAD_FLASH)
     set(target ${QL_APP_BUILD_VER})
     add_appimg_flash_ql_example(${target} ql_init.c)
+    # 客户 SDK：签名规则必须和 C51_APP.pac 写在同一 CMake 目录，否则 ninja 没有 .sign.img 的 rule
+    if(QL_SDK_APP_ONLY)
+        sign_image(${out_hex_example_dir}/${target}.img
+                   ${out_hex_example_dir}/${target}.sign.img)
+    endif()
 
 	target_link_libraries(${target} PRIVATE ql_app_nw ql_app_peripheral ql_app_osi ql_app_dev ql_app_sim ql_app_power)
     if(QL_APP_FEATURE_FTP)

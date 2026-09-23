@@ -379,3 +379,5 @@ quec_app_start
 ## 11. 一句话（实现向）
 
 OpenCPU 的核心不是另做一套操作系统，而是：**内核先起来，按约定从 Flash `0x60250000` 加载第二份镜像，用 export/stub 把 `ql_*` 接到内核实现，再调用 `appimg_enter`。** 客户开发就是写这份镜像。
+
+发给终端客户时应打 **APPIMG-only SDK**（`./pack_opencpu_sdk.sh`），不要交整仓 `kernel/hal/driver` 源码，见 [15_客户SDK交付.md](15_客户SDK交付.md)。

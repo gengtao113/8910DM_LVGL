@@ -24,6 +24,8 @@
 | [12_客户开发说明.md](12_客户开发说明.md) | OpenCPU 客户改哪、怎么编、烧哪个包 |
 | [13_内存划分说明.md](13_内存划分说明.md) | 16MB PSRAM / SRAM、AP 4MB 与 APPIMG 128KB |
 | [14_OpenCPU开发说明.md](14_OpenCPU开发说明.md) | OpenCPU 模型、加载器、export/stub |
+| [15_客户SDK交付.md](15_客户SDK交付.md) | 只发 APPIMG SDK，不交内核源码 |
+| [16_客户SDK变更说明.md](16_客户SDK变更说明.md) | 对照 git status：提交哪些、忽略哪些 |
 
 ## 30 秒速览
 
