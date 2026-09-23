@@ -264,7 +264,7 @@ lv_obj_t* ic_infocard_create(lv_obj_t* parent, lv_style_t* style)
     static lv_style_t title_style;
     lv_style_init(&title_style);
     lv_style_set_text_color(&title_style, LV_STATE_DEFAULT, LV_COLOR_WHITE);
-    lv_style_set_text_font(&title_style, LV_STATE_DEFAULT, ic_font_get(IC_FONT_SMALL));
+    lv_style_set_text_font(&title_style, LV_STATE_DEFAULT, ic_font_get(IC_FONT_LARGE));
     lv_style_set_bg_color(&title_style, LV_STATE_DEFAULT, LV_COLOR_BLACK);
     lv_style_set_border_width(&title_style, LV_STATE_DEFAULT, 0);
 
@@ -286,7 +286,7 @@ lv_obj_t* ic_infocard_create(lv_obj_t* parent, lv_style_t* style)
     static lv_style_t card_style;
     lv_style_init(&card_style);
     lv_style_set_text_color(&card_style, LV_STATE_DEFAULT, LV_COLOR_WHITE);
-    lv_style_set_text_font(&card_style, LV_STATE_DEFAULT, ic_font_get(IC_FONT_SMALL));
+    lv_style_set_text_font(&card_style, LV_STATE_DEFAULT, ic_font_get(IC_FONT_LARGE));
     lv_style_set_bg_color(&card_style, LV_STATE_DEFAULT, LV_COLOR_MAKE(0x20, 0x20, 0x20));
     lv_style_set_border_width(&card_style, LV_STATE_DEFAULT, 0);
     lv_style_set_radius(&card_style, LV_STATE_DEFAULT, 10);

@@ -15,6 +15,7 @@ typedef struct {
 
 //font declauration
 LV_FONT_DECLARE(opposans_14);
+LV_FONT_DECLARE(opposans_18);
 
 static const ic_locale_font_t ic_font_list[] = 
 {
@@ -22,9 +23,9 @@ static const ic_locale_font_t ic_font_list[] =
     { 
         "en-US",
         {
-            &opposans_14,         //IC_FONT_XXLARGE
-            &opposans_14,         //IC_FONT_XLARGE
-            &opposans_14,         //IC_FONT_LARGE
+            &opposans_18,         //IC_FONT_XXLARGE
+            &opposans_18,         //IC_FONT_XLARGE
+            &opposans_18,         //IC_FONT_LARGE
             &opposans_14,         //IC_FONT_MEDIUM
             &opposans_14,         //IC_FONT_SMALL
         },
@@ -34,9 +35,9 @@ static const ic_locale_font_t ic_font_list[] =
     {
         "zh-CN",
         {
-            &opposans_14,         //IC_FONT_XXLARGE
-            &opposans_14,         //IC_FONT_XLARGE
-            &opposans_14,         //IC_FONT_LARGE
+            &opposans_18,         //IC_FONT_XXLARGE
+            &opposans_18,         //IC_FONT_XLARGE
+            &opposans_18,         //IC_FONT_LARGE
             &opposans_14,         //IC_FONT_MEDIUM
             &opposans_14,         //IC_FONT_SMALL
         },

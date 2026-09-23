@@ -30,6 +30,7 @@ target_sources(${target} PRIVATE
     title_bar.c
     fonts/iclv_font.c
     fonts/opposans_14.c
+    fonts/opposans_18.c
     clockface/clockface.c
     assets/output/image_id_list.c
     assets/output/IMG_CLOCKFACE_ANALOG1_BG.c

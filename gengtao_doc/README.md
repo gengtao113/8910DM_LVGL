@@ -29,6 +29,8 @@
 | [17_core_export与OpenCPU原理.md](17_core_export与OpenCPU原理.md) | 导出名单、stub、tag 焊死 |
 | [18_core_export注意事项.md](18_core_export注意事项.md) | 改 list 的十条注意，每条带图 |
 | [19_Ubuntu模拟器.md](19_Ubuntu模拟器.md) | Ubuntu 上 SDL2 跑手表 UI |
+| [20_ql-application框架.md](20_ql-application框架.md) | 应用树、feature 裁剪、demo 与产品路径 |
+| [21_页面栈.md](21_页面栈.md) | lv_widgets 全屏历史：生命周期、两套导航 |
 
 ## 30 秒速览
 

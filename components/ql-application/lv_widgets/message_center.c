@@ -208,7 +208,7 @@ lv_obj_t * ic_message_center_create(lv_obj_t * parent, lv_style_t * style)
     static lv_style_t title_style;
     lv_style_init(&title_style);
     lv_style_set_text_color(&title_style, LV_STATE_DEFAULT, LV_COLOR_WHITE);
-    lv_style_set_text_font(&title_style, LV_STATE_DEFAULT, ic_font_get(IC_FONT_SMALL));
+    lv_style_set_text_font(&title_style, LV_STATE_DEFAULT, ic_font_get(IC_FONT_LARGE));
     lv_style_set_bg_color(&title_style, LV_STATE_DEFAULT, LV_COLOR_BLACK);
     lv_style_set_border_width(&title_style, LV_STATE_DEFAULT, 0);
 

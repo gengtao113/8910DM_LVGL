@@ -14,7 +14,7 @@
  Title Bar
   | Title         Time |
  */
-#define  TITLE_BAR_HEIGHT                 (20)
+#define  TITLE_BAR_HEIGHT                 (28)
 #define  TITLE_BAR_BORDER_WIDTH            (10)
 
 typedef struct {
