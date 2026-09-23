@@ -28,3 +28,19 @@ doxygen-warning-log.txt
 
 # to include anyway
 !.gitignore
+
+# 本地提交说明，不要进库
+/commit.txt
+
+# 固件产物（release=C51，debug=C51V）。中间目录 /out/ 已在上面忽略。
+# 注意：已被 git 跟踪的文件不受本规则影响，需先：
+#   git rm -r --cached target/
+/target/
+
+# dtools 依赖，由 build_all.sh 从 Ubuntu xenial 拉取，不要进库
+/tools/linux/lib/libicu*.so.55*
+
+# prebuilts/linux、tools/linux 工具链已在库里，不能整目录 ignore。
+# 本机 chmod / 符号链接还原只改 mode，gitignore 挡不住；提交前丢弃：
+#   git checkout -- prebuilts/linux tools/linux
+# 再单独 git add prebuilts/linux/nanopb/protoc（CRLF→LF 要提交）

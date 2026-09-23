@@ -198,4 +198,13 @@
  */
 #cmakedefine QL_APP_FEATURE_VIRT_AT
 
+/**
+ * whether to eanble APP feature CTP
+ */
+#cmakedefine INCAR_APP_FEATURE_CTP
+
+/**
+ * whether to eanble APP feature CTP BL6133
+ */
+#cmakedefine INCAR_APP_FEATURE_CTP_BL6133
 #endif

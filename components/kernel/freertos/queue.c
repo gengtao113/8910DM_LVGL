@@ -1916,39 +1916,6 @@ UBaseType_t uxSavedCriticalStatus;
 	return uxReturn;
 } /*lint !e818 Pointer cannot be declared const as xQueue is a typedef not pointer. */
 /*-----------------------------------------------------------*/
-/**
- * @brief 获取线程事件队列中剩余可用空间（可写入的事件数量）
- *
- * 此函数用于查询指定线程的事件队列中当前还有多少个事件槽可用。
- * 即还可以投递多少个事件而不会导致队列满。
- *
- * @param thread 目标线程对象指针
- * @return 剩余可写事件数量（队列剩余空间），若参数无效则返回 0
- *
- * @note 该函数线程安全，且支持在中断上下文中调用。
- *       适用于事件投递前做可用性判断，防止阻塞或溢出。
- */
-
-uint32_t osiEventSpaceCount(osiThread_t *thread)
-{
-    // 如果线程对象为空，则无效，返回 0 表示无可用空间
-    if (thread == NULL)
-        return 0;
-
-    // 获取线程的事件队列指针
-    osiEventQueue_t *queue = osiThreadEventQueue(thread);
-    if (queue == NULL)
-        return 0;
-
-    // 注释说明：
-    // 虽然 FreeRTOS 的原始设计并不推荐在 ISR 中使用此函数，
-    // 但当前实现兼容了中断上下文调用，可安全获取剩余空间数。
-
-    // 查询并返回队列中剩余的可写入空间数（单位：事件数）
-    return uxQueueSpacesAvailable((QueueHandle_t)queue);
-}
-
-/*-----------------------------------------------------------*/
 
 UBaseType_t uxQueueMessagesWaitingFromISR( const QueueHandle_t xQueue )
 {

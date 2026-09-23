@@ -1,6 +1,6 @@
 #ifndef BL_CHIP_COMMON_H
 #define BL_CHIP_COMMON_H
-#include "tp_ts.h"
+#include "Tp_ts.h"
 
 #define	BL8XXX_60	0x01//bl86XX,bl8878
 #define	BL8XXX_61	0x02//bl8858,bl8868

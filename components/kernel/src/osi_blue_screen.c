@@ -28,10 +28,9 @@ typedef struct
     void *param;
 } osiBlueScreenHandler_t;
 
-#ifdef CONFIG_WDT_ENABLE
+// 预编译 ql_api/at 无条件引用此符号；debug 未开 CONFIG_WDT_ENABLE 也必须提供。
 //quectel update: init as false
 bool gBsWatchdogReset = false;
-#endif
 
 static bool gIsPanic = false;
 static osiBlueScreenHandler_t gBlueScreenHandlers[CONFIG_KERNEL_BLUE_SCREEN_HANDLER_COUNT];

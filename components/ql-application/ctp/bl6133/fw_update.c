@@ -1,5 +1,5 @@
 #include "fw_update.h"
-#include "TP_ts.h"
+#include "Tp_ts.h"
 #include "bl_chip_common.h"
 #include "bl_fw.h"
 

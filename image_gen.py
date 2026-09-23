@@ -23,8 +23,12 @@ import sys
 from os import path
 from optparse import OptionParser
 
-php_path=r".\\tools\\php\\php.exe "
-lvglUtilPath=r".\\tools\\lvgl\\lv_utils\\img_conv_core.php"
+if os.name == "nt":
+    php_path = r".\\tools\\php\\php.exe "
+    lvglUtilPath = r".\\tools\\lvgl\\lv_utils\\img_conv_core.php"
+else:
+    php_path = "php "
+    lvglUtilPath = "./tools/lvgl/lv_utils/img_conv_core.php"
 
 def Main():
     outDir=None
